@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ballpark — Daily Estimation Game</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#12161f;
+    --surface:#1b2130;
+    --surface-2:#242c3f;
+    --line:#2e364a;
+    --text:#eae7de;
+    --text-dim:#8b93a7;
+    --cold:#3f6fb0;
+    --cool:#4fa3c4;
+    --warm:#e8a23c;
+    --hot:#e0523a;
+    --spot:#ffd23f;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 20% -10%, rgba(79,163,196,0.12), transparent 45%),
+      radial-gradient(circle at 90% 110%, rgba(224,82,58,0.10), transparent 45%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Space Grotesk', sans-serif;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    padding:28px 16px 60px;
+  }
+  .app{width:100%;max-width:480px;}
+  .brand{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+  .brand-mark{display:flex;align-items:center;gap:10px;}
+  .brand-dot{width:14px;height:14px;border-radius:50%;background:conic-gradient(from 180deg,var(--cold),var(--warm),var(--hot),var(--spot));}
+  h1{font-size:1.5rem;letter-spacing:0.04em;margin:0;font-weight:700;}
+  .tagline{color:var(--text-dim);font-size:0.82rem;margin:2px 0 20px;letter-spacing:0.01em;}
+  .meta-row{display:flex;justify-content:space-between;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--text-dim);margin-bottom:18px;}
+  .streak-badge{background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px 10px;color:var(--text);}
+
+  .progress-dots{display:flex;gap:8px;justify-content:center;margin-bottom:18px;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--line);transition:background 0.3s;}
+  .dot.active{background:var(--spot);}
+  .dot.done{background:var(--text-dim);}
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:26px 22px;
+    margin-bottom:16px;
+  }
+  .category{
+    display:inline-block;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:0.65rem;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    color:var(--text-dim);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:3px 8px;
+    margin-bottom:14px;
+  }
+  .prompt{font-size:1.18rem;line-height:1.45;font-weight:500;margin-bottom:22px;}
+
+  .gauge-wrap{display:flex;flex-direction:column;align-items:center;margin-bottom:10px;}
+  .gauge-labels{
+    display:flex;justify-content:space-between;width:100%;max-width:280px;
+    font-family:'IBM Plex Mono',monospace;font-size:0.6rem;letter-spacing:0.06em;
+    color:var(--text-dim);margin-top:-6px;text-transform:uppercase;
+  }
+  .band-readout{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:0.95rem;
+    font-weight:600;
+    letter-spacing:0.04em;
+    margin-top:6px;
+    min-height:1.4em;
+    text-align:center;
+  }
+  .error-readout{font-size:0.72rem;color:var(--text-dim);text-align:center;margin-top:2px;min-height:1.2em;}
+
+  .attempts-row{display:flex;gap:6px;justify-content:center;margin:14px 0 18px;}
+  .pip{width:26px;height:6px;border-radius:3px;background:var(--line);}
+  .pip.used{background:var(--text-dim);}
+
+  .input-row{display:flex;align-items:center;gap:12px;margin-bottom:6px;}
+  input[type=range]{
+    flex:1;
+    -webkit-appearance:none;
+    height:4px;
+    border-radius:2px;
+    background:var(--line);
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:18px;height:18px;border-radius:50%;
+    background:var(--spot);
+    cursor:pointer;
+    border:2px solid var(--bg);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:18px;height:18px;border-radius:50%;
+    background:var(--spot);cursor:pointer;border:2px solid var(--bg);
+  }
+  .num-readout{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:1.15rem;font-weight:600;
+    min-width:58px;text-align:right;
+  }
+  button{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:600;
+    font-size:0.9rem;
+    border:none;
+    border-radius:10px;
+    padding:13px 18px;
+    cursor:pointer;
+    width:100%;
+    transition:transform 0.12s ease, opacity 0.12s ease;
+  }
+  button:active{transform:scale(0.98);}
+  button:focus-visible{outline:2px solid var(--spot);outline-offset:2px;}
+  .btn-primary{background:var(--spot);color:#1a1608;margin-top:8px;}
+  .btn-secondary{background:var(--surface-2);color:var(--text);border:1px solid var(--line);margin-top:8px;}
+  .btn-row{display:flex;gap:10px;}
+  .btn-row button{margin-top:8px;}
+  button:disabled{opacity:0.4;cursor:not-allowed;}
+
+  .msg{font-size:0.78rem;color:var(--text-dim);text-align:center;margin-top:10px;line-height:1.5;}
+
+  .summary-total{text-align:center;margin:6px 0 20px;}
+  .summary-total .score{font-family:'IBM Plex Mono',monospace;font-size:2.6rem;font-weight:600;color:var(--spot);}
+  .summary-total .outof{color:var(--text-dim);font-size:0.9rem;}
+  .grade{font-size:0.95rem;letter-spacing:0.04em;color:var(--text-dim);margin-top:4px;}
+
+  .breakdown{display:flex;flex-direction:column;gap:10px;margin-bottom:20px;}
+  .breakdown-row{
+    display:flex;align-items:center;justify-content:space-between;
+    background:var(--surface-2);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;
+  }
+  .breakdown-q{font-size:0.78rem;color:var(--text-dim);max-width:62%;line-height:1.4;}
+  .breakdown-score{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:0.95rem;}
+  .breakdown-band{font-size:1.1rem;}
+
+  .countdown{
+    font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--text-dim);
+    text-align:center;margin-top:6px;
+  }
+  .footer-note{font-size:0.68rem;color:var(--text-dim);text-align:center;margin-top:24px;line-height:1.6;opacity:0.7;}
+
+  .auth-row{display:flex;justify-content:flex-end;margin-bottom:2px;}
+  .signin-btn{
+    display:flex;align-items:center;gap:8px;
+    background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+    border-radius:999px;padding:6px 14px 6px 6px;font-size:0.72rem;font-weight:500;
+    width:auto;cursor:pointer;
+  }
+  .signin-btn svg{width:18px;height:18px;}
+  .user-chip{
+    display:flex;align-items:center;gap:8px;
+    font-size:0.72rem;color:var(--text-dim);
+  }
+  .user-chip img{width:22px;height:22px;border-radius:50%;}
+  .user-chip button{
+    width:auto;background:none;border:none;color:var(--text-dim);
+    text-decoration:underline;font-size:0.68rem;padding:0;font-family:inherit;
+  }
+
+  .leaderboard{margin-top:18px;}
+  .leaderboard-title{
+    font-family:'IBM Plex Mono',monospace;font-size:0.68rem;letter-spacing:0.1em;
+    text-transform:uppercase;color:var(--text-dim);margin-bottom:10px;text-align:center;
+  }
+  .lb-row{
+    display:flex;align-items:center;gap:10px;padding:7px 4px;
+    border-bottom:1px solid var(--line);font-size:0.82rem;
+  }
+  .lb-row.me{background:rgba(255,210,63,0.08);border-radius:6px;}
+  .lb-rank{color:var(--text-dim);font-family:'IBM Plex Mono',monospace;width:20px;}
+  .lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lb-score{font-family:'IBM Plex Mono',monospace;font-weight:600;}
+  .lb-empty{color:var(--text-dim);font-size:0.78rem;text-align:center;padding:10px 0;}
+
+  .share-row{display:flex;gap:10px;margin-top:8px;}
+  .share-row button{margin-top:0;}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="auth-row" id="authRow"></div>
+
+  <div class="brand">
+    <div class="brand-mark">
+      <div class="brand-dot"></div>
+      <h1>BALLPARK</h1>
+    </div>
+  </div>
+  <div class="tagline">Trust your gut. Three questions, three guesses, no exact science required.</div>
+
+  <div class="meta-row">
+    <span id="dayLabel">Day —</span>
+    <span class="streak-badge" id="streakBadge">🔥 0 day streak</span>
+  </div>
+
+  <div class="progress-dots" id="progressDots"></div>
+
+  <div id="gameArea"></div>
+
+  <div class="footer-note" id="footerNote"></div>
+</div>
+
+<script>
+(function(){
+
+  /* ---------- Question bank ---------- */
+  const BANK = [
+    {cat:"Geography", q:"What percentage of Earth's surface is covered by water?", a:70.8},
+    {cat:"Geography", q:"What percentage of Earth's land surface is desert?", a:33.1},
+    {cat:"Nature", q:"What percentage of the world's fresh water is frozen in ice caps and glaciers?", a:68.7},
+    {cat:"Nature", q:"What percentage of the world's fresh water is groundwater?", a:30.1},
+    {cat:"Nature", q:"What percentage of all water on Earth is easily accessible fresh water (rivers and lakes)?", a:0.3},
+    {cat:"Biology", q:"What percentage of the average adult human body's weight is water?", a:62.6},
+    {cat:"Biology", q:"What percentage of the human genome is shared with chimpanzees?", a:98.8},
+    {cat:"Biology", q:"What percentage of an octopus's neurons are located in its arms, not its brain?", a:66.7},
+    {cat:"Biology", q:"What percentage of the bones in the human body are in the hands and feet combined?", a:51.5},
+    {cat:"Biology", q:"What percentage of a jellyfish's body is water?", a:95.4},
+    {cat:"Biology", q:"What percentage of a banana's weight is water?", a:74.9},
+    {cat:"Nature", q:"What percentage of the sunlight energy hitting a typical plant does it convert into usable chemical energy?", a:1.1},
+    {cat:"Nature", q:"What percentage of an iceberg's volume sits below the waterline?", a:89.9},
+    {cat:"Geography", q:"What percentage of the world's population lives in Asia?", a:59.2},
+    {cat:"Geography", q:"What percentage of the world's population lives in urban areas?", a:56.9},
+    {cat:"Geography", q:"What percentage of Africa's population is under the age of 25?", a:59.6},
+    {cat:"Astronomy", q:"What percentage of the Moon's surface has been visible from Earth over time (due to libration)?", a:59.0},
+    {cat:"Astronomy", q:"What percentage of Earth's total mass is made up by its core?", a:32.5},
+    {cat:"Chemistry", q:"What percentage of Earth's atmosphere is nitrogen gas?", a:78.1},
+    {cat:"Biology", q:"What percentage of Earth's mammalian biomass is made up of humans and livestock combined?", a:94.5},
+    {cat:"Biology", q:"What percentage of all known insect species are beetles?", a:39.6},
+    {cat:"Language", q:"What percentage of the world's population speaks Mandarin Chinese as a first language?", a:11.9},
+    {cat:"Language", q:"What percentage of the world's languages are considered endangered?", a:40.3},
+    {cat:"Earth History", q:"What percentage of Earth's history had only single-celled life, before multicellular life appeared?", a:86.8},
+    {cat:"Geography", q:"What percentage of the Sahara Desert's surface is actually sand dunes, rather than rock and gravel?", a:15.0},
+    {cat:"Biology", q:"What percentage of an adult human's body weight is skeletal muscle?", a:38.4},
+    {cat:"Nature", q:"What percentage of the world's fresh water use goes to agriculture?", a:69.0},
+    {cat:"Nature", q:"What percentage of the oxygen we breathe is estimated to come from ocean phytoplankton?", a:52.0},
+    {cat:"Biology", q:"What percentage of people worldwide are left-handed?", a:10.6},
+    {cat:"Astronomy", q:"What percentage of the observable universe's mass-energy is made of ordinary atomic matter?", a:4.9}
+  ];
+
+  /* ---------- Seeded RNG (mulberry32) ---------- */
+  function mulberry32(seed){
+    return function(){
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function seededShuffle(arr, seed){
+    const rand = mulberry32(seed);
+    const a = arr.slice();
+    for(let i=a.length-1;i>0;i--){
+      const j = Math.floor(rand()*(i+1));
+      [a[i],a[j]] = [a[j],a[i]];
+    }
+    return a;
+  }
+
+  function utcDateString(d){
+    return d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0")+"-"+String(d.getUTCDate()).padStart(2,"0");
+  }
+  function daysSinceEpoch(d){
+    return Math.floor(d.getTime()/86400000);
+  }
+
+  const GAME_EPOCH_DAY = daysSinceEpoch(new Date(Date.UTC(2026,0,1))); // Jan 1 2026 UTC, arbitrary stable epoch
+  const now = new Date();
+  const todayDay = daysSinceEpoch(now);
+  const dayIndex = todayDay - GAME_EPOCH_DAY;
+  const dateStr = utcDateString(now);
+  const N = BANK.length;
+  const cycle = Math.floor(((dayIndex % N) + N) % N / 1); // just for clarity
+  const cycleNum = Math.floor(dayIndex / N);
+  const deck = seededShuffle(BANK, cycleNum * 7919 + 13); // reshuffle whole bank each full cycle
+  const posInCycle = ((dayIndex % N) + N) % N;
+  const startIdx = (posInCycle * 3) % N;
+  const todaysQuestions = [
+    deck[startIdx % N],
+    deck[(startIdx+1) % N],
+    deck[(startIdx+2) % N]
+  ];
+  const puzzleNumber = dayIndex + 1;
+
+  /* ---------- Supabase (auth + leaderboard) ---------- */
+  // 1. Create a free project at supabase.com
+  // 2. Authentication > Providers > enable Google (needs a Google OAuth client ID/secret from Google Cloud Console)
+  // 3. Table Editor > SQL, run the schema from the setup notes provided alongside this file
+  // 4. Paste your Project URL and anon public key below (Project Settings > API)
+  const SUPABASE_URL = "https://jgzcjeedrxwnroeykgpa.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpnemNqZWVkcnh3bnJvZXlrZ3BhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MzM5OTUsImV4cCI6MjA5ODUwOTk5NX0.YpL0gy4QneDZNf8np1c5YGAQ5ij2oqyOGxn9guY95M0";
+
+  let sb = null;
+  let currentUser = null;
+  const leaderboardEnabled = SUPABASE_URL !== "YOUR_SUPABASE_URL" && SUPABASE_ANON_KEY !== "YOUR_SUPABASE_ANON_KEY" && window.supabase;
+  if (leaderboardEnabled) {
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+
+  const authRow = document.getElementById("authRow");
+
+  function renderAuthUI(){
+    if(!leaderboardEnabled){
+      authRow.innerHTML = "";
+      return;
+    }
+    if(currentUser){
+      const name = currentUser.user_metadata?.full_name || "Player";
+      authRow.innerHTML = `
+        <div class="user-chip">
+          <span>Playing as ${name}</span>
+          <button id="signOutBtn">Sign out</button>
+        </div>`;
+      document.getElementById("signOutBtn").addEventListener("click", async ()=>{
+        await sb.auth.signOut();
+      });
+    } else {
+      authRow.innerHTML = `<button class="signin-btn" id="signInBtn">Join the leaderboard</button>`;
+      document.getElementById("signInBtn").addEventListener("click", ()=>{
+        const name = (prompt("Pick a display name for the leaderboard:") || "").trim();
+        if(!name) return;
+        doAnonSignIn(name);
+      });
+    }
+  }
+
+  async function doAnonSignIn(name){
+    const { data, error } = await sb.auth.signInAnonymously();
+    if(error || !data.user) return;
+    await sb.auth.updateUser({ data: { full_name: name } });
+    const { data: { session } } = await sb.auth.getSession();
+    currentUser = session ? session.user : null;
+    renderAuthUI();
+    if(state.complete){
+      const lb = document.getElementById("lbContainer");
+      if(lb) renderLeaderboard(lb);
+    }
+  }
+
+  async function submitScoreToLeaderboard(total){
+    if(!leaderboardEnabled || !currentUser) return;
+    try{
+      await sb.from("scores").upsert({
+        user_id: currentUser.id,
+        display_name: currentUser.user_metadata?.full_name || currentUser.email || "Player",
+        date: dateStr,
+        puzzle_number: puzzleNumber,
+        total
+      }, { onConflict: "user_id,date" });
+    }catch(e){ /* fails silently — local result still stands */ }
+  }
+
+  async function renderLeaderboard(container){
+    if(!leaderboardEnabled){
+      container.innerHTML = `<div class="lb-empty">Leaderboards aren't connected yet — see the setup notes to turn this on.</div>`;
+      return;
+    }
+    if(!currentUser){
+      container.innerHTML = `<div class="lb-empty">Tap "Join the leaderboard" above to post your score and see today's rankings.</div>`;
+      return;
+    }
+    try{
+      const { data, error } = await sb
+        .from("scores")
+        .select("display_name,total,user_id")
+        .eq("date", dateStr)
+        .order("total", { ascending: false })
+        .limit(10);
+      if(error || !data || data.length === 0){
+        container.innerHTML = `<div class="lb-empty">No scores yet today — be the first.</div>`;
+        return;
+      }
+      container.innerHTML = data.map((row,i)=>`
+        <div class="lb-row ${row.user_id===currentUser.id?'me':''}">
+          <span class="lb-rank">${i+1}</span>
+          <span class="lb-name">${row.display_name}</span>
+          <span class="lb-score">${row.total}</span>
+        </div>`).join("");
+    }catch(e){
+      container.innerHTML = `<div class="lb-empty">Couldn't load the leaderboard right now.</div>`;
+    }
+  }
+
+
+  const storage = {
+    async get(key){
+      if (window.storage && window.storage.get){
+        try { const r = await window.storage.get(key, false); return r ? r.value : null; }
+        catch(e){ return null; }
+      }
+      try { return window.localStorage.getItem(key); } catch(e){ return null; }
+    },
+    async set(key, value){
+      if (window.storage && window.storage.set){
+        try { await window.storage.set(key, value, false); return; } catch(e){}
+      }
+      try { window.localStorage.setItem(key, value); } catch(e){}
+    }
+  };
+
+  /* ---------- Scoring ---------- */
+  const BAND_DEFS = [
+    {id:"spot", label:"SPOT ON", emoji:"🎯", color:"var(--spot)", max:1},
+    {id:"hot",  label:"HOT",     emoji:"🔴", color:"var(--hot)",  max:4},
+    {id:"warm", label:"WARM",    emoji:"🟠", color:"var(--warm)", max:7},
+    {id:"cold", label:"COLD",    emoji:"🧊", color:"var(--cold)", max:Infinity}
+  ];
+  function bandFor(error){
+    for(const b of BAND_DEFS){ if(error <= b.max) return b; }
+    return BAND_DEFS[BAND_DEFS.length-1];
+  }
+  function scoreFor(error){
+    if(error > 7) return 0;
+    const raw = 1000 * (1 - Math.pow(error/7, 1.4));
+    return Math.max(0, Math.round(raw));
+  }
+
+  /* ---------- Game state ---------- */
+  let state = {
+    qIndex: 0,
+    guesses: [[],[],[]],      // per question: list of {value, error, band, score}
+    finished: [false,false,false],
+    questionScores: [0,0,0],
+    complete: false,
+    lockChoicePending: false
+  };
+
+  const gameArea = document.getElementById("gameArea");
+  const progressDots = document.getElementById("progressDots");
+  const dayLabel = document.getElementById("dayLabel");
+  const streakBadge = document.getElementById("streakBadge");
+  const footerNote = document.getElementById("footerNote");
+
+  dayLabel.textContent = "Day " + puzzleNumber;
+
+  function renderDots(){
+    progressDots.innerHTML = "";
+    for(let i=0;i<3;i++){
+      const d = document.createElement("div");
+      d.className = "dot" + (i===state.qIndex && !state.complete ? " active" : (state.finished[i] ? " done" : ""));
+      progressDots.appendChild(d);
+    }
+  }
+
+  function polar(cx,cy,r,angleDeg){
+    const rad = angleDeg * Math.PI/180;
+    return { x: cx + r*Math.cos(rad), y: cy - r*Math.sin(rad) };
+  }
+
+  function gaugeSVG(closeness, animate){
+    const cx=140, cy=130, r=100;
+    const segAngles = [180,135,90,45,0];
+    const segColors = ["var(--cold)","var(--warm)","var(--hot)","var(--spot)"];
+    let arcs = "";
+    for(let i=0;i<4;i++){
+      const p1 = polar(cx,cy,r,segAngles[i]);
+      const p2 = polar(cx,cy,r,segAngles[i+1]);
+      arcs += `<path d="M ${p1.x} ${p1.y} A ${r} ${r} 0 0 1 ${p2.x} ${p2.y}" stroke="${segColors[i]}" stroke-width="14" fill="none" stroke-linecap="round" opacity="0.9"/>`;
+    }
+    const theta = closeness * 180;
+    const needleLen = r - 18;
+    return `
+    <svg viewBox="0 0 280 150" width="240" height="130" style="overflow:visible;">
+      ${arcs}
+      <g style="transform-origin:${cx}px ${cy}px; transform:rotate(${theta}deg); transition:${animate?'transform 0.9s cubic-bezier(.2,.8,.2,1)':'none'};">
+        <line x1="${cx}" y1="${cy}" x2="${cx-needleLen}" y2="${cy}" stroke="var(--text)" stroke-width="3" stroke-linecap="round"/>
+      </g>
+      <circle cx="${cx}" cy="${cy}" r="6" fill="var(--text)"/>
+    </svg>`;
+  }
+
+  function renderQuestion(){
+    renderDots();
+    const qi = state.qIndex;
+    const q = todaysQuestions[qi];
+    const guesses = state.guesses[qi];
+    const attemptsUsed = guesses.length;
+    const attemptsLeft = 3 - attemptsUsed;
+    const lastGuess = guesses[guesses.length-1];
+    const bandOrder = ["cold","warm","hot","spot"];
+    const closeness = lastGuess ? (bandOrder.indexOf(lastGuess.band) + 0.5) / 4 : 0;
+
+    let sliderVal = lastGuess ? lastGuess.value : 50;
+
+    let attemptsPips = "";
+    for(let i=0;i<3;i++){
+      attemptsPips += `<div class="pip${i<attemptsUsed?' used':''}"></div>`;
+    }
+
+    let bottomControls = "";
+    if(state.lockChoicePending){
+      bottomControls = `
+        <div class="btn-row">
+          <button class="btn-secondary" id="pushLuckBtn">Push your luck</button>
+          <button class="btn-primary" id="lockInBtn">Lock in ✓</button>
+        </div>
+        <div class="msg">Spot on! Lock in your score and speed bonus, or risk another guess to shave the error even closer.</div>
+      `;
+    } else if(attemptsUsed >= 3){
+      bottomControls = `<button class="btn-primary" id="nextBtn">${qi<2 ? "Next question" : "See results"}</button>`;
+    } else {
+      bottomControls = `
+        <div class="input-row">
+          <input type="range" min="0" max="100" step="1" value="${sliderVal}" id="guessSlider">
+          <div class="num-readout" id="numReadout">${sliderVal}%</div>
+        </div>
+        <button class="btn-primary" id="guessBtn">${attemptsUsed===0?'Lock in guess':'Guess again'}</button>
+      `;
+    }
+
+    gameArea.innerHTML = `
+      <div class="card">
+        <span class="category">${q.cat}</span>
+        <div class="prompt">${q.q}</div>
+        <div class="gauge-wrap">
+          ${gaugeSVG(closeness, true)}
+          <div class="gauge-labels"><span>Cold</span><span>Spot on</span></div>
+        </div>
+        <div class="band-readout" id="bandReadout" style="color:${lastGuess ? bandFor(lastGuess.error).color : 'var(--text-dim)'}">
+          ${lastGuess ? bandFor(lastGuess.error).emoji + " " + bandFor(lastGuess.error).label : "Make your first guess"}
+        </div>
+        <div class="error-readout" id="errorReadout">
+          ${lastGuess ? `You guessed ${lastGuess.value}%` : "&nbsp;"}
+        </div>
+        <div class="attempts-row">${attemptsPips}</div>
+        ${bottomControls}
+      </div>
+    `;
+
+    const slider = document.getElementById("guessSlider");
+    const numReadout = document.getElementById("numReadout");
+    if(slider){
+      slider.addEventListener("input", ()=>{ numReadout.textContent = slider.value + "%"; });
+    }
+    const guessBtn = document.getElementById("guessBtn");
+    if(guessBtn){
+      guessBtn.addEventListener("click", ()=>{
+        const val = parseInt(slider.value, 10);
+        submitGuess(val);
+      });
+    }
+    const lockInBtn = document.getElementById("lockInBtn");
+    if(lockInBtn){ lockInBtn.addEventListener("click", finalizeCurrentQuestion); }
+    const pushLuckBtn = document.getElementById("pushLuckBtn");
+    if(pushLuckBtn){
+      pushLuckBtn.addEventListener("click", ()=>{
+        state.lockChoicePending = false;
+        renderQuestion();
+      });
+    }
+    const nextBtn = document.getElementById("nextBtn");
+    if(nextBtn){ nextBtn.addEventListener("click", finalizeCurrentQuestion); }
+  }
+
+  function submitGuess(val){
+    const qi = state.qIndex;
+    const q = todaysQuestions[qi];
+    const error = Math.abs(val - q.a);
+    const band = bandFor(error);
+    const score = scoreFor(error);
+    state.guesses[qi].push({value:val, error, band:band.id, score});
+
+    const attemptsUsed = state.guesses[qi].length;
+    if(band.id === "spot" && attemptsUsed < 3){
+      state.lockChoicePending = true;
+    } else {
+      state.lockChoicePending = false;
+    }
+    renderQuestion();
+  }
+
+  function finalizeCurrentQuestion(){
+    const qi = state.qIndex;
+    const guesses = state.guesses[qi];
+    const best = guesses.reduce((a,b)=> b.score > a.score ? b : a, guesses[0]);
+    const speedBonus = (3 - guesses.length) * 15;
+    const finalScore = Math.min(1000, best.score + speedBonus);
+    state.questionScores[qi] = finalScore;
+    state.finished[qi] = true;
+    state.lockChoicePending = false;
+
+    if(qi < 2){
+      state.qIndex = qi + 1;
+      renderQuestion();
+    } else {
+      state.complete = true;
+      finishGame();
+    }
+  }
+
+  function gradeFor(total){
+    if(total >= 2700) return "S — elite estimator";
+    if(total >= 2200) return "A — sharp instincts";
+    if(total >= 1600) return "B — solid ballpark";
+    if(total >= 1000) return "C — respectable guesswork";
+    return "D — back to the drawing board";
+  }
+
+  async function finishGame(){
+    const total = state.questionScores.reduce((a,b)=>a+b,0);
+
+    // persist today's completion
+    await storage.set("ballpark:day:"+dateStr, JSON.stringify({
+      total,
+      questionScores: state.questionScores,
+      guesses: state.guesses
+    }));
+
+    // update streak stats
+    let stats = {streak:0, lastCompletedDay:-1, played:0, best:0};
+    try {
+      const raw = await storage.get("ballpark:stats");
+      if(raw) stats = JSON.parse(raw);
+    } catch(e){}
+    if(stats.lastCompletedDay === dayIndex - 1){
+      stats.streak += 1;
+    } else if(stats.lastCompletedDay !== dayIndex){
+      stats.streak = 1;
+    }
+    stats.lastCompletedDay = dayIndex;
+    stats.played = (stats.played||0) + 1;
+    stats.best = Math.max(stats.best||0, stats.streak);
+    await storage.set("ballpark:stats", JSON.stringify(stats));
+    await submitScoreToLeaderboard(total);
+
+    renderSummary(total, stats);
+  }
+
+  function renderSummary(total, stats){
+    renderDots();
+    streakBadge.textContent = "🔥 " + (stats.streak||0) + " day streak";
+
+    let rows = "";
+    todaysQuestions.forEach((q, i)=>{
+      const guesses = state.guesses[i];
+      const best = guesses.reduce((a,b)=> b.score > a.score ? b : a, guesses[0]);
+      const band = BAND_DEFS.find(b=>b.id===best.band);
+      rows += `
+        <div class="breakdown-row">
+          <div class="breakdown-q">${q.cat} · ${guesses.length} guess${guesses.length>1?'es':''}</div>
+          <div class="breakdown-band">${band.emoji}</div>
+          <div class="breakdown-score">${state.questionScores[i]}</div>
+        </div>`;
+    });
+
+    const shareEmoji = todaysQuestions.map((q,i)=>{
+      const guesses = state.guesses[i];
+      const best = guesses.reduce((a,b)=> b.score > a.score ? b : a, guesses[0]);
+      return BAND_DEFS.find(b=>b.id===best.band).emoji;
+    }).join(" ");
+
+    const shareText = `Ballpark #${puzzleNumber} — ${total}/3000\n${shareEmoji}\nplay: [your link here]`;
+
+    gameArea.innerHTML = `
+      <div class="card">
+        <div class="summary-total">
+          <div class="score">${total}</div>
+          <div class="outof">out of 3000</div>
+          <div class="grade">${gradeFor(total)}</div>
+        </div>
+        <div class="breakdown">${rows}</div>
+        <div class="share-row">
+          <button class="btn-primary" id="shareBtn">Copy result</button>
+          <button class="btn-secondary" id="tweetBtn">Share to X</button>
+        </div>
+        <div class="msg" id="shareMsg"></div>
+        <div class="leaderboard">
+          <div class="leaderboard-title">Today's Leaderboard</div>
+          <div id="lbContainer"><div class="lb-empty">Loading…</div></div>
+        </div>
+        <div class="countdown" id="countdown"></div>
+      </div>
+    `;
+
+    const tweetBtn = document.getElementById("tweetBtn");
+    tweetBtn.addEventListener("click", ()=>{
+      const url = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(shareText);
+      window.open(url, "_blank", "noopener");
+    });
+
+    renderLeaderboard(document.getElementById("lbContainer"));
+
+    const shareBtn = document.getElementById("shareBtn");
+    const shareMsg = document.getElementById("shareMsg");
+    shareBtn.addEventListener("click", async ()=>{
+      try{
+        await navigator.clipboard.writeText(shareText);
+        shareMsg.textContent = "Copied to clipboard.";
+      }catch(e){
+        shareMsg.innerHTML = "Copy this:<br><br>" + shareText.replace(/\n/g,"<br>");
+      }
+    });
+
+    startCountdown();
+  }
+
+  function startCountdown(){
+    const el = document.getElementById("countdown");
+    if(!el) return;
+    function tick(){
+      const n = new Date();
+      const next = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()+1));
+      const diff = next - n;
+      const h = String(Math.floor(diff/3600000)).padStart(2,"0");
+      const m = String(Math.floor((diff%3600000)/60000)).padStart(2,"0");
+      const s = String(Math.floor((diff%60000)/1000)).padStart(2,"0");
+      el.textContent = "Next puzzle in " + h + ":" + m + ":" + s;
+    }
+    tick();
+    setInterval(tick, 1000);
+  }
+
+  /* ---------- Boot ---------- */
+  async function boot(){
+    renderAuthUI();
+
+    if(leaderboardEnabled){
+      const { data: { session } } = await sb.auth.getSession();
+      currentUser = session ? session.user : null;
+      renderAuthUI();
+
+      sb.auth.onAuthStateChange((_event, session)=>{
+        currentUser = session ? session.user : null;
+        renderAuthUI();
+        if(state.complete){
+          const lb = document.getElementById("lbContainer");
+          if(lb) renderLeaderboard(lb);
+        }
+      });
+    }
+
+    let stats = {streak:0, lastCompletedDay:-1, played:0, best:0};
+    try {
+      const raw = await storage.get("ballpark:stats");
+      if(raw) stats = JSON.parse(raw);
+    } catch(e){}
+    streakBadge.textContent = "🔥 " + (stats.streak||0) + " day streak";
+
+    let existing = null;
+    try {
+      const raw = await storage.get("ballpark:day:"+dateStr);
+      if(raw) existing = JSON.parse(raw);
+    } catch(e){}
+
+    if(existing){
+      state.questionScores = existing.questionScores;
+      state.guesses = existing.guesses;
+      state.finished = [true,true,true];
+      state.complete = true;
+      renderSummary(existing.total, stats);
+    } else {
+      renderQuestion();
+    }
+  }
+
+  footerNote.textContent = "Answers reflect commonly cited approximate figures, rounded for gameplay.";
+  boot();
+
+})();
+</script>
+</body>
+</html>
