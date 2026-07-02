@@ -433,6 +433,15 @@
     for(const b of BAND_DEFS){ if(error <= b.max) return b; }
     return BAND_DEFS[BAND_DEFS.length-1];
   }
+  // Continuous 0–1 "closeness" used to position the gauge needle. Unlike the
+  // discrete band (cold/warm/hot/spot), this responds to every change in
+  // error, so two guesses in the same band still visibly differ unless
+  // their error is identical. Exponential decay keeps it very sensitive in
+  // the low-error region (where band thresholds live) while still spreading
+  // out larger errors instead of pinning them all to the far left.
+  function closenessFromError(error){
+    return Math.exp(-error / 10);
+  }
   function scoreFor(error){
     if(error > 7) return 0;
     const raw = 1000 * (1 - Math.pow(error/7, 1.4));
@@ -446,7 +455,8 @@
     finished: [false,false,false],
     questionScores: [0,0,0],
     complete: false,
-    lockChoicePending: false
+    lockChoicePending: false,
+    roundComplete: false      // true once the current question's guessing is done and its score is being shown
   };
 
   const gameArea = document.getElementById("gameArea");
@@ -498,11 +508,16 @@
     const qi = state.qIndex;
     const q = todaysQuestions[qi];
     const guesses = state.guesses[qi];
+
+    if(state.roundComplete){
+      renderRoundComplete(qi, q, guesses);
+      return;
+    }
+
     const attemptsUsed = guesses.length;
     const attemptsLeft = 3 - attemptsUsed;
     const lastGuess = guesses[guesses.length-1];
-    const bandOrder = ["cold","warm","hot","spot"];
-    const closeness = lastGuess ? (bandOrder.indexOf(lastGuess.band) + 0.5) / 4 : 0;
+    const closeness = lastGuess ? closenessFromError(lastGuess.error) : 0;
 
     let sliderVal = lastGuess ? lastGuess.value : 50;
 
@@ -521,7 +536,10 @@
         <div class="msg">Spot on! Lock in your score and speed bonus, or risk another guess to shave the error even closer.</div>
       `;
     } else if(attemptsUsed >= 3){
-      bottomControls = `<button class="btn-primary" id="nextBtn">${qi<2 ? "Next question" : "See results"}</button>`;
+      // Safety net: guessing is exhausted but the round hasn't been scored yet.
+      // Normally submitGuess() handles this transition automatically.
+      completeRound(qi);
+      return;
     } else {
       bottomControls = `
         <div class="input-row">
@@ -564,7 +582,9 @@
       });
     }
     const lockInBtn = document.getElementById("lockInBtn");
-    if(lockInBtn){ lockInBtn.addEventListener("click", finalizeCurrentQuestion); }
+    if(lockInBtn){
+      lockInBtn.addEventListener("click", ()=>{ completeRound(state.qIndex); });
+    }
     const pushLuckBtn = document.getElementById("pushLuckBtn");
     if(pushLuckBtn){
       pushLuckBtn.addEventListener("click", ()=>{
@@ -572,8 +592,6 @@
         renderQuestion();
       });
     }
-    const nextBtn = document.getElementById("nextBtn");
-    if(nextBtn){ nextBtn.addEventListener("click", finalizeCurrentQuestion); }
   }
 
   function submitGuess(val){
@@ -587,21 +605,42 @@
     const attemptsUsed = state.guesses[qi].length;
     if(band.id === "spot" && attemptsUsed < 3){
       state.lockChoicePending = true;
+      renderQuestion();
+    } else if(attemptsUsed >= 3){
+      // All three guesses used up — score the round and reveal it now.
+      state.lockChoicePending = false;
+      completeRound(qi);
     } else {
       state.lockChoicePending = false;
+      renderQuestion();
     }
-    renderQuestion();
   }
 
-  function finalizeCurrentQuestion(){
-    const qi = state.qIndex;
+  // Computes the round's result from the best-scoring guess made so far
+  // (not necessarily the most recent guess), plus the speed bonus for
+  // finishing in fewer attempts.
+  function computeRoundResult(qi){
     const guesses = state.guesses[qi];
     const best = guesses.reduce((a,b)=> b.score > a.score ? b : a, guesses[0]);
     const speedBonus = (3 - guesses.length) * 15;
     const finalScore = Math.min(1000, best.score + speedBonus);
+    return { best, speedBonus, finalScore };
+  }
+
+  // Scores the round (using the best guess) and shows the reveal screen.
+  function completeRound(qi){
+    const { finalScore } = computeRoundResult(qi);
     state.questionScores[qi] = finalScore;
     state.finished[qi] = true;
     state.lockChoicePending = false;
+    state.roundComplete = true;
+    renderQuestion();
+  }
+
+  // Called after the player has seen their round score and taps Continue.
+  function advanceQuestion(){
+    const qi = state.qIndex;
+    state.roundComplete = false;
 
     if(qi < 2){
       state.qIndex = qi + 1;
@@ -610,6 +649,34 @@
       state.complete = true;
       finishGame();
     }
+  }
+
+  function renderRoundComplete(qi, q, guesses){
+    const { best, speedBonus, finalScore } = computeRoundResult(qi);
+    const band = BAND_DEFS.find(b=>b.id===best.band);
+    const closeness = closenessFromError(best.error);
+
+    gameArea.innerHTML = `
+      <div class="card">
+        <span class="category">${q.cat}</span>
+        <div class="prompt">${q.q}</div>
+        <div class="gauge-wrap">
+          ${gaugeSVG(closeness, true)}
+          <div class="gauge-labels"><span>Cold</span><span>Spot on</span></div>
+        </div>
+        <div class="band-readout" style="color:${band.color}">${band.emoji} ${band.label}</div>
+        <div class="error-readout">Best guess: ${best.value}%</div>
+        <div class="summary-total" style="margin:16px 0 4px;">
+          <div class="score" style="font-size:2.1rem;">+${finalScore}</div>
+          <div class="outof">points this round</div>
+        </div>
+        <div class="msg">${guesses.length} guess${guesses.length>1?'es':''} used${speedBonus>0?` · +${speedBonus} speed bonus`:''}</div>
+        <button class="btn-primary" id="continueBtn" style="margin-top:16px;">${qi<2 ? "Next question" : "See results"}</button>
+      </div>
+    `;
+
+    const continueBtn = document.getElementById("continueBtn");
+    continueBtn.addEventListener("click", advanceQuestion);
   }
 
   function gradeFor(total){
