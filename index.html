@@ -439,8 +439,24 @@
   // their error is identical. Exponential decay keeps it very sensitive in
   // the low-error region (where band thresholds live) while still spreading
   // out larger errors instead of pinning them all to the far left.
+  // Maps error -> a 0-1 "closeness" used to position the gauge needle.
+  // The four colored arcs (cold/warm/hot/spot) always keep the same fixed
+  // 45-degree size, matching the real band boundaries (1 / 4 / 7). Within
+  // whichever arc the guess currently falls in, the needle slides fluidly
+  // based on the exact error — so two "cold" guesses (e.g. 9 off vs 20 off)
+  // clearly look different, without ever crossing into another arc's color.
   function closenessFromError(error){
-    return Math.exp(-error / 10);
+    let theta;
+    if(error <= 1){              // spot arc: theta 135-180
+      theta = 180 - 45 * error;
+    } else if(error <= 4){        // hot arc: theta 90-135
+      theta = 135 - 45 * (error - 1) / 3;
+    } else if(error <= 7){        // warm arc: theta 45-90
+      theta = 90 - 45 * (error - 4) / 3;
+    } else {                      // cold arc: theta 0-45, fluid & asymptotic
+      theta = 45 * Math.exp(-(error - 7) / 10);
+    }
+    return theta / 180;
   }
   function scoreFor(error){
     if(error > 7) return 0;
@@ -597,7 +613,7 @@
   function submitGuess(val){
     const qi = state.qIndex;
     const q = todaysQuestions[qi];
-    const error = Math.abs(val - q.a);
+    const error = Math.abs(val - Math.round(q.a));
     const band = bandFor(error);
     const score = scoreFor(error);
     state.guesses[qi].push({value:val, error, band:band.id, score});
@@ -734,6 +750,17 @@
         </div>`;
     });
 
+    let answerRows = "";
+    todaysQuestions.forEach((q, i)=>{
+      const guesses = state.guesses[i];
+      const best = guesses.reduce((a,b)=> b.score > a.score ? b : a, guesses[0]);
+      answerRows += `
+        <div class="breakdown-row">
+          <div class="breakdown-q">${q.q}</div>
+          <div class="breakdown-score">${Math.round(q.a)}% <span style="opacity:.6;font-weight:400;">(you: ${Math.round(best.value)}%)</span></div>
+        </div>`;
+    });
+
     const shareEmoji = todaysQuestions.map((q,i)=>{
       const guesses = state.guesses[i];
       const best = guesses.reduce((a,b)=> b.score > a.score ? b : a, guesses[0]);
@@ -750,6 +777,10 @@
           <div class="grade">${gradeFor(total)}</div>
         </div>
         <div class="breakdown">${rows}</div>
+        <div class="breakdown" style="margin-top:18px;">
+          <div class="breakdown-title" style="font-weight:600;margin-bottom:8px;opacity:.8;">Today's answers</div>
+          ${answerRows}
+        </div>
         <div class="share-row">
           <button class="btn-primary" id="shareBtn">Copy result</button>
           <button class="btn-secondary" id="tweetBtn">Share to X</button>
